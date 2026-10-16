@@ -49,9 +49,11 @@ def load():
         cfg["preset"] = "normal"
     if cfg["preset"] in PRESETS:
         cfg.update(PRESETS[cfg["preset"]])
-    stats = {"best": 0, "wins": 0, "runs": 0}
+    stats = {"best": 0, "wins": 0, "runs": 0, "finished": 0, "layers": 0,
+             "turns": 0, "cards": 0, "panics": 0}
     if isinstance(data.get("stats"), dict):
-        stats.update({k: v for k, v in data["stats"].items() if k in stats and isinstance(v, int)})
+        stats.update({k: v for k, v in data["stats"].items()
+                      if k in stats and type(v) is int and v >= 0})
     return cfg, stats, load_decks(data)
 
 
@@ -260,15 +262,17 @@ class App:
         c.create_text(600, 308, text="glitch protocol  //  infiltration", fill=CYAN, font=font(14))
         c.create_text(600, 336, text="break in. take the right file. get out.", fill=DIM, font=font(11))
         menu = (("new run", self.new_run), ("deck builder", self.show_decks),
+                ("all-time stats", self.show_stats),
                 ("how to play", lambda: self.show_pages(RULES, self.show_title)),
                 ("settings", self.show_settings), ("quit", self.root.destroy))
         for i, (text, cmd) in enumerate(menu):
-            c.create_window(600, 410 + i * 50, window=button(c, text, cmd, width=18, pady=3))
+            c.create_window(600, 390 + i * 43, window=button(c, text, cmd, width=18, pady=2))
         deck = self.decks["slots"][self.decks["active"]]
-        c.create_text(600, 640, text=f"active deck: deck {self.decks['active'] + 1}  ({len(deck)} cards)",
+        c.create_text(600, 665, text=f"active deck: deck {self.decks['active'] + 1}  ({len(deck)} cards)",
                       fill=CYAN, font=font(10))
         s = self.stats
-        c.create_text(600, 665, text=f"best run: {s['best']}/5 layers     wins: {s['wins']}     runs: {s['runs']}",
+        rate = 100 * s["wins"] / s["runs"] if s["runs"] else 0
+        c.create_text(600, 645, text=f"all-time: {s['wins']} wins / {s['runs']} runs   //   {rate:.1f}% win rate   //   best {s['best']}/5",
                       fill=DIM, font=font(10))
 
         def spin():
@@ -290,6 +294,42 @@ class App:
             c.coords(front, 600 + spread, 245)
 
         self.loop(spin)
+
+    def show_stats(self):
+        self.mode = "stats"
+        self.clear()
+        c = tk.Canvas(self.stage, width=1200, height=700, bg=BG, highlightthickness=0)
+        c.pack()
+        rain = Rain(c, 1200, 700, 38, CYAN, 0.92)
+        c.create_text(40, 42, text="RUN ARCHIVE  //  ALL-TIME", anchor="w", fill=HI, font=ui_font(22, True))
+        c.create_text(40, 72, text="persistent records from every infiltration", anchor="w", fill=DIM, font=font(10))
+        c.create_window(1090, 48, window=button(c, "main menu", self.show_title, fg=DIM, size=9, padx=12, pady=4))
+
+        stats = self.stats
+        rate = 100 * stats["wins"] / stats["runs"] if stats["runs"] else 0
+        average = stats["layers"] / stats["finished"] if stats["finished"] else 0
+        records = [
+            ("RUNS STARTED", str(stats["runs"]), "all-time attempts", CYAN),
+            ("EXTRACTIONS", str(stats["wins"]), "successful full runs", GREEN),
+            ("WIN RATE", f"{rate:.1f}%", "wins / runs started", AMBER),
+            ("BEST RUN", f"{stats['best']} / 5", "layers reached", CYAN),
+            ("RUNS FINISHED", str(stats["finished"]), "results recorded", GREEN),
+            ("LAYERS CLEARED", str(stats["layers"]), "across finished runs", CYAN),
+            ("AVG. DEPTH", f"{average:.1f} / 5", "layers per finished run", AMBER),
+            ("TURNS PLAYED", str(stats["turns"]), "across finished runs", CYAN),
+            ("CARDS PLAYED", str(stats["cards"]), "across finished runs", GREEN),
+            ("KERNEL PANICS", str(stats["panics"]), "across finished runs", RED),
+        ]
+        for i, (heading, value, detail, accent) in enumerate(records):
+            col, row = i % 5, i // 5
+            x, y = 40 + col * 232, 130 + row * 195
+            panel(c, x, y, x + 210, y + 158, edge=LINE, fill=PANEL, accent=accent)
+            c.create_text(x + 16, y + 22, text=heading, anchor="w", fill=DIM, font=font(9, True))
+            c.create_text(x + 16, y + 76, text=value, anchor="w", fill=accent, font=ui_font(26, True))
+            c.create_text(x + 16, y + 128, text=detail, anchor="w", fill=FG, font=font(9))
+        c.create_text(40, 555, text="Detailed totals begin with runs finished in this version. Earlier runs remain included in starts, wins, win rate, and best run.",
+                      anchor="w", fill=DIM, font=font(9))
+        self.loop(rain.step, 40)
 
     def new_run(self):
         problem = deck_problem(self.decks["slots"][self.decks["active"]])
@@ -1098,6 +1138,11 @@ class App:
         self.mode, self.busy = "over", False
         st["best"] = max(st["best"], g.tier + won)
         st["wins"] += won
+        st["finished"] += 1
+        st["layers"] += g.tier + won
+        st["turns"] += g.turn
+        st["cards"] += g.played
+        st["panics"] += g.panics
         self.save()
         ov = tk.Frame(self.stage, bg=BG)
         ov.place(x=0, y=0, relwidth=1, relheight=1)
